@@ -1,39 +1,94 @@
-import json
 import schedule
-import time
-from datetime import datetime
-from sheets_helper import get_sheet_service, insert_event, ensure_month_sheet_exists
-import calendar
+import time as time_module
+from datetime import datetime, timedelta
+import os
+from dotenv import load_dotenv
+
+from sheets_helper import *
+
+load_dotenv()
+
+CREDENTIALS_FILE = os.getenv("CREDENTIALS_FILE")
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+RANGE_NAME = os.getenv("RANGE_NAME")
+CALENDAR_ID = os.getenv("CALENDAR_ID")
 
 
-# ----- Setup Google Sheets -----
-CREDENTIALS_FILE = 'credentials.json'
-SPREADSHEET_ID = '1pLd3IXbDggq2gdmgFGuVvaFqQ74joEwx7zpiZgvgyOA'
-RANGE_NAME = 'Sheet1!A:D'  
-
-# Load dummy events
-with open('dummy_events.json', 'r', encoding='utf-8') as f:
-    events = json.load(f)
+calendar_service = get_calendar_service(CREDENTIALS_FILE)
 
 sheet = get_sheet_service(CREDENTIALS_FILE)
 
 def process_work_events():
-    print("Checking for work events...")
-    for event in events:
-        if "work" in event['title']:
-            fmt = "%H:%M"
-            start_dt = datetime.strptime(event['start'], fmt)
-            end_dt = datetime.strptime(event['end'], fmt)
-            total_hours = (end_dt - start_dt).seconds / 3600
-            # Month name from event date
-            event_date = datetime.strptime(event['date'], "%Y-%m-%d")
-            month_name = calendar.month_name[event_date.month] + f" {event_date.year}"
+    print("--------------------------------------------------")
+    print("Starting work event processing...")
+    
+    try:
+        print("Fetching events from Google Calendar...")
+        events = get_today_events(calendar_service, CALENDAR_ID)
+        print(f"Total events fetched: {len(events)}")
 
-            # Ensure sheet exists
+    except Exception as e:
+        print("ERROR fetching calendar events:")
+        print(e)
+        return
+
+    if not events:
+        print("No events found for today.")
+        return
+
+    for event in events:
+        title = event.get('summary', '')
+        print(f"Checking event: '{title}'")
+
+        if "work" not in title.lower():
+            print("→ Skipping (not a work event)")
+            continue
+
+        print("→ Work event detected")
+
+        start = event['start'].get('dateTime')
+        end = event['end'].get('dateTime')
+
+        if not start or not end:
+            print("→ Skipping (missing start/end time)")
+            continue
+
+        try:
+            start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+            end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+
+            total_hours = (end_dt - start_dt).seconds / 3600
+            event_date = start_dt.date().isoformat()
+            month_name = start_dt.strftime("%B %Y")
+
+            print(f"→ Date: {event_date}")
+            print(f"→ Hours: {total_hours}")
+            print(f"→ Target sheet: {month_name}")
+
+            print("Ensuring month sheet exists...")
             ensure_month_sheet_exists(sheet, SPREADSHEET_ID, month_name)
 
-            # Append event to proper sheet
-            insert_event(sheet, SPREADSHEET_ID, month_name, event, total_hours)
+            print("Inserting event into sheet...")
+            insert_event(
+                sheet,
+                SPREADSHEET_ID,
+                month_name,
+                {
+                    "date": event_date,
+                    "start": start_dt.strftime("%H:%M"),
+                    "end": end_dt.strftime("%H:%M")
+                },
+                total_hours
+            )
+
+            print("✓ Successfully inserted")
+
+        except Exception as e:
+            print("ERROR processing event:")
+            print(e)
+
+    print("Finished processing events.")
+    print("--------------------------------------------------")
 
 # Schedule: run once daily at 20:00
 schedule.every().day.at("20:00").do(process_work_events)
@@ -42,4 +97,4 @@ schedule.every().day.at("20:00").do(process_work_events)
 print("MCP Scheduler started. Press Ctrl+C to stop.")
 while True:
     schedule.run_pending()
-    time.sleep(30)
+    time_module.sleep(30)

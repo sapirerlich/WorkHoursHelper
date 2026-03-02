@@ -1,14 +1,45 @@
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from datetime import datetime,timedelta, timezone
 
 
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/calendar.readonly'
+]
+
+def get_calendar_service(credentials_file):
+    creds = Credentials.from_service_account_file(credentials_file, scopes=SCOPES)
+    service = build('calendar', 'v3', credentials=creds)
+    return service
+
 
 def get_sheet_service(credentials_file):
     creds = Credentials.from_service_account_file(credentials_file, scopes=SCOPES)
     service = build('sheets', 'v4', credentials=creds)
     return service.spreadsheets()
+
+from datetime import datetime, timedelta, timezone
+
+def get_today_events(calendar_service, calendarId):
+    now = datetime.now(timezone.utc)
+
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_of_day = start_of_day + timedelta(days=1)
+
+    print("TimeMin:", start_of_day.isoformat())
+    print("TimeMax:", end_of_day.isoformat())
+
+    events_result = calendar_service.events().list(
+        calendarId=calendarId,
+        timeMin=start_of_day.isoformat(),
+        timeMax=end_of_day.isoformat(),
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute()
+
+    return events_result.get('items', [])
+
 
 def insert_event(sheet, spreadsheet_id, range_name, event, total_hours):
     values = [[event['date'], event['start'], event['end'], round(total_hours, 2)]]
