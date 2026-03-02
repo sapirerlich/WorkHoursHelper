@@ -93,7 +93,7 @@ def process_work_events():
     print("--------------------------------------------------")
 
 # Schedule: run once daily at 20:00
-schedule.every().day.at("12:50").do(process_work_events)
+schedule.every().day.at("20:00").do(process_work_events)
 
 
 print("Work Hours Bot started. Press Ctrl+C to stop.")
